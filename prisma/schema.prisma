@@ -1,0 +1,400 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Status/type fields are stored as strings (SQLite has no native enums in Prisma).
+// Valid values are enforced via zod schemas in src/lib/validations.ts and service code.
+
+// ---------- Core ----------
+
+model Organization {
+  id          String    @id @default(cuid())
+  name        String
+  code        String    @unique
+  description String?
+  email       String?
+  phone       String?
+  address     String?
+  country     String?
+  currency    String    @default("USD")
+  timezone    String    @default("UTC")
+  status      String  @default("ACTIVE")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users        User[]
+  roles        Role[]
+  budgets      Budget[]
+  categories   Category[]
+  departments  Department[]
+  projects     Project[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+  notifications Notification[]
+  settings     SystemSetting[]
+
+  @@index([status])
+  @@index([code])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g. "budget:create"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  name           String   @unique // SUPERADMIN, ADMIN, ...
+  description    String?
+  isSystem       Boolean  @default(false)
+  organizationId String? // null = global/system role
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users        User[]
+  permissions  RolePermission[]
+
+  @@index([organizationId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id             String     @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String     @unique
+  phone          String?
+  passwordHash   String
+  roleId         String
+  organizationId String?
+  status         String @default("ACTIVE")
+  lastLoginAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  role         Role          @relation(fields: [roleId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sessions            Session[]
+  passwordResets      PasswordResetToken[]
+  createdBudgets      Budget[]              @relation("BudgetCreatedBy")
+  approvedBudgets     Budget[]              @relation("BudgetApprovedBy")
+  createdTransactions Transaction[]         @relation("TransactionCreatedBy")
+  approvedTransactions Transaction[]        @relation("TransactionApprovedBy")
+  budgetApprovals     BudgetApproval[]
+  transactionApprovals TransactionApproval[]
+  managedDepartments  Department[]          @relation("DepartmentManager")
+  ownedProjects       Project[]             @relation("ProjectOwner")
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+
+  @@index([organizationId])
+  @@index([roleId])
+  @@index([email])
+  @@index([status])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- Org structure ----------
+
+model Category {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  parentId       String?
+  status         String @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     Category[]    @relation("CategoryHierarchy")
+  budgetItems  BudgetItem[]
+  transactions Transaction[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([parentId])
+}
+
+model Department {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  managerId      String?
+  status         String @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manager      User?         @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  budgetItems  BudgetItem[]
+  transactions Transaction[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model Project {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  description    String?
+  budgetOwnerId  String?
+  status         String @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budgetOwner  User?         @relation("ProjectOwner", fields: [budgetOwnerId], references: [id], onDelete: SetNull)
+  budgetItems  BudgetItem[]
+  transactions Transaction[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+// ---------- Budgets ----------
+
+model Budget {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  budgetCode     String
+  periodType     String       @default("YEARLY")
+  startDate      DateTime
+  endDate        DateTime
+  currency       String       @default("USD")
+  totalAmount    Int      @default(0) // stored in cents; convert to dollars: totalAmount / 100
+  status         String       @default("DRAFT")
+  rejectionReason String?
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("BudgetCreatedBy", fields: [createdById], references: [id])
+  approvedBy   User?        @relation("BudgetApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  items        BudgetItem[]
+  approvals    BudgetApproval[]
+  transactions Transaction[]
+
+  @@unique([organizationId, budgetCode])
+  @@index([organizationId])
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+model BudgetItem {
+  id              String   @id @default(cuid())
+  budgetId        String
+  categoryId      String?
+  departmentId    String?
+  projectId       String?
+  description     String?
+  allocatedAmount Int // stored in cents; convert to dollars: allocatedAmount / 100
+  spentAmount     Int      @default(0) // stored in cents; convert to dollars: spentAmount / 100
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  budget     Budget      @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category   Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  project    Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  transactions Transaction[]
+
+  @@index([budgetId])
+  @@index([categoryId])
+  @@index([departmentId])
+  @@index([projectId])
+}
+
+model BudgetApproval {
+  id        String       @id @default(cuid())
+  budgetId  String
+  userId    String
+  fromStatus String?
+  toStatus  String
+  comment   String?
+  createdAt DateTime     @default(now())
+
+  budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([budgetId])
+}
+
+// ---------- Transactions ----------
+
+model Transaction {
+  id             String            @id @default(cuid())
+  organizationId String
+  budgetId       String?
+  budgetItemId   String?
+  categoryId     String?
+  departmentId   String?
+  projectId      String?
+  type           String
+  amount         Int // stored in cents
+  description    String?
+  reference      String?
+  transactionDate DateTime         @default(now())
+  vendor         String?
+  attachmentUrl  String?
+  status         String @default("DRAFT")
+  rejectionReason String?
+  idempotencyKey String?           @unique
+  createdById    String
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget       Budget?      @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetItem   BudgetItem?  @relation(fields: [budgetItemId], references: [id], onDelete: SetNull)
+  category     Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation("TransactionCreatedBy", fields: [createdById], references: [id])
+  approvedBy   User?        @relation("TransactionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  approvals TransactionApproval[]
+
+  @@index([organizationId])
+  @@index([budgetId])
+  @@index([budgetItemId])
+  @@index([status])
+  @@index([type])
+  @@index([transactionDate])
+}
+
+model TransactionApproval {
+  id            String            @id @default(cuid())
+  transactionId String
+  userId        String
+  fromStatus    String?
+  toStatus      String
+  comment       String?
+  createdAt     DateTime          @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@index([transactionId])
+}
+
+// ---------- Platform ----------
+
+model Notification {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String
+  title          String
+  message        String
+  type           String   @default("INFO")
+  isRead         Boolean  @default(false)
+  link           String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String?
+  oldValues      String?
+  newValues      String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id             String   @id @default(cuid())
+  organizationId String? // null = global setting
+  key            String
+  value          String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
