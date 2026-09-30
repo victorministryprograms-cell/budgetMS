@@ -1,6 +1,5 @@
 import { newToken, hashToken } from "./auth";
 import { SignJWT } from "jose";
-import type { SessionUser } from "./auth";
 
 // Demo users for development fallback (stored in Map for proper typing)
 const DEMO_USERS_MAP = new Map<
@@ -57,11 +56,16 @@ export type DevUser = {
 };
 
 export async function verifyDevPassword(password: string, email: string): Promise<{ valid: boolean; user?: DevUser }> {
+  // These credentials are published in the repository. They must never be
+  // honoured in a deployed environment.
+  if (process.env.NODE_ENV === "production") {
+    return { valid: false };
+  }
   const user = DEMO_USERS_MAP.get(email);
   if (!user) return { valid: false };
   if (user.plainPassword === password) {
-    const { plainPassword, ...rest } = user;
-    return { valid: true, user: rest };
+    const { id, email: userEmail, role, permissions } = user;
+    return { valid: true, user: { id, email: userEmail, role, permissions } };
   }
   return { valid: false };
 }

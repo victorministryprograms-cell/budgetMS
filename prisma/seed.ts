@@ -7,6 +7,29 @@ const prisma = new PrismaClient({
   log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
 });
 
+const isProd = process.env.NODE_ENV === "production";
+
+/**
+ * Resolve a seed credential. Blank/whitespace-only env vars are treated as
+ * unset so an empty string can never become a real password or email.
+ * In production every credential must be supplied explicitly and passwords
+ * must be long enough, rather than silently falling back to the demo values.
+ */
+function requiredSeed(name: string, devFallback: string): string {
+  const raw = process.env[name];
+  const value = raw?.trim();
+  if (value) {
+    if (isProd && name.endsWith("_PASSWORD") && value.length < 12) {
+      throw new Error(`${name} must be at least 12 characters when seeding production`);
+    }
+    return value;
+  }
+  if (isProd) {
+    throw new Error(`${name} must be set to a non-empty value when seeding production`);
+  }
+  return devFallback;
+}
+
 async function main() {
   const allKeys = [...new Set([...SUPERADMIN_PERMISSIONS, ...ADMIN_PERMISSIONS])];
 
@@ -57,10 +80,10 @@ async function main() {
     },
   });
 
-  const superEmail = process.env.SEED_SUPERADMIN_EMAIL ?? "superadmin@example.com";
-  const superPass = process.env.SEED_SUPERADMIN_PASSWORD ?? "Superadmin123!";
-  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@demo.com";
-  const adminPass = process.env.SEED_ADMIN_PASSWORD ?? "Admin123!";
+  const superEmail = requiredSeed("SEED_SUPERADMIN_EMAIL", "superadmin@example.com");
+  const superPass = requiredSeed("SEED_SUPERADMIN_PASSWORD", "Superadmin123!");
+  const adminEmail = requiredSeed("SEED_ADMIN_EMAIL", "admin@demo.com");
+  const adminPass = requiredSeed("SEED_ADMIN_PASSWORD", "Admin123!");
 
   await prisma.user.upsert({
     where: { email: superEmail.toLowerCase() },

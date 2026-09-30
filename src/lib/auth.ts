@@ -96,7 +96,6 @@ export const getSession = cache(async (): Promise<SessionUser | null> => {
     const { payload } = await jwtVerify(jwt, secret());
     const sid = payload.sid as string | undefined;
     if (!sid) return null;
-    // Try Prisma first, but gracefully fall back if database is unavailable
     try {
       const session = await prisma.session.findUnique({
         where: { tokenHash: sid },
@@ -117,25 +116,24 @@ export const getSession = cache(async (): Promise<SessionUser | null> => {
         permissions: session.user.role.permissions.map((rp) => rp.permission.key),
       };
     } catch (prismaError) {
-      // Database unavailable — verify the JWT payload directly and return minimal user info
-      // This allows the session to persist even when the database is down
-      try {
-        const { sid: sidFromPayload, ...rest } = payload;
-        // Return a minimal session based on the JWT claims only
-        // The permissions will be limited, but the user can still operate
-        return {
-          id: sidFromPayload ? String(sidFromPayload).slice(0, 20) : "dev-user",
-          email: "dev-user@example.com",
-          firstName: "Dev",
-          lastName: "User",
-          role: "ADMIN",
-          organizationId: null,
-          status: "ACTIVE",
-          permissions: [], // Limited permissions in dev mode
-        };
-      } catch {
+      // Never fabricate a session when the session store is unreachable: doing so
+      // would turn any signed token into an authenticated user. In production a
+      // database outage is a hard auth failure.
+      if (process.env.NODE_ENV === "production") {
+        console.error("Session lookup failed:", prismaError);
         return null;
       }
+      // Dev only: keep local development usable without a reachable database.
+      return {
+        id: String(sid).slice(0, 20),
+        email: "dev-user@example.com",
+        firstName: "Dev",
+        lastName: "User",
+        role: "ADMIN",
+        organizationId: null,
+        status: "ACTIVE",
+        permissions: [],
+      };
     }
   } catch {
     return null;

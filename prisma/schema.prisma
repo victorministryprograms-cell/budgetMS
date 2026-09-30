@@ -3,12 +3,15 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// Status/type fields are stored as strings (SQLite has no native enums in Prisma).
+// Status/type fields are stored as strings (kept portable across providers).
 // Valid values are enforced via zod schemas in src/lib/validations.ts and service code.
+//
+// All monetary values are Int (minor units / cents) and all arithmetic is done
+// with decimal.js in src/lib/finance.ts, so no floating-point columns exist.
 
 // ---------- Core ----------
 
