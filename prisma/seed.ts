@@ -1,11 +1,18 @@
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+import { createPrismaClient } from "../src/lib/db-client";
 import { SUPERADMIN_PERMISSIONS, ADMIN_PERMISSIONS } from "../src/lib/permissions";
 
-const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-});
+// The libSQL driver adapter reads configuration straight from process.env, so
+// the env file must be loaded before the client is constructed. Next.js does
+// this for the app; this script runs under tsx and must do it itself.
+try {
+  process.loadEnvFile();
+} catch {
+  // no .env file present — rely on the ambient environment
+}
+
+const prisma = createPrismaClient();
 
 const isProd = process.env.NODE_ENV === "production";
 

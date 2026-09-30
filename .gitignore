@@ -45,5 +45,7 @@ dist/
 .env
 
 # prisma (local sqlite db contains seeded password/session hashes)
-/prisma/*.db
-/prisma/*.db-journal
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

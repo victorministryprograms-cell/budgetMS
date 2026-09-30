@@ -3,9 +3,15 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
+
+// Production runs on Turso (libSQL), which speaks the SQLite dialect and is
+// reached over HTTP through @prisma/adapter-libsql. Prisma Migrate cannot talk
+// to a remote libSQL database, so schema changes are generated with
+// `prisma migrate diff` and applied with the Turso CLI (npm run db:deploy).
+// A local file URL keeps `npm run dev` working without a remote database.
 
 // Status/type fields are stored as strings (kept portable across providers).
 // Valid values are enforced via zod schemas in src/lib/validations.ts and service code.
