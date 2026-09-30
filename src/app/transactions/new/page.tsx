@@ -7,8 +7,12 @@ import { Input, Label, Button } from "@/components/ui";
 export default function NewTransactionPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setError(null);
+    setBusy(true);
     const fd = new FormData(e.currentTarget);
     const r = await txCreate({
       type: fd.get("type"), amount: Number(fd.get("amount")),
@@ -17,8 +21,22 @@ export default function NewTransactionPage() {
       budgetItemId: fd.get("budgetItemId") || null,
       idempotencyKey: fd.get("idempotencyKey") || undefined,
     });
-    if (!r.success) { setError(r.error.message); return; }
-    router.push(`/transactions/${(r.data as { id: string }).id}`);
+    if (!r.success) { setError(r.error.message); setBusy(false); return; }
+
+    const id = (r.data as { id: string }).id;
+    // The attachment needs the transaction id, so it uploads after creation.
+    if (file) {
+      const upload = new FormData();
+      upload.append("file", file);
+      upload.append("transactionId", id);
+      const res = await fetch("/api/attachments", { method: "POST", body: upload });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        router.push(`/transactions/${id}?uploadError=${encodeURIComponent(json?.error?.message ?? "Attachment upload failed")}`);
+        return;
+      }
+    }
+    router.push(`/transactions/${id}`);
   }
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -34,8 +52,18 @@ export default function NewTransactionPage() {
         </div>
         <div><Label>Description</Label><Input name="description" /></div>
         <div><Label>Idempotency key (optional, prevents duplicates)</Label><Input name="idempotencyKey" /></div>
+        <div>
+          <Label>Attachment (optional)</Label>
+          <input
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.csv,.txt"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:bg-white file:px-3 file:py-1.5 file:text-sm"
+          />
+          <p className="mt-1 text-xs text-zinc-500">PDF, PNG, JPEG, WebP, GIF, CSV or text. Up to 2MB.</p>
+        </div>
         {error && <p className="text-xs text-red-600">{error}</p>}
-        <Button className="w-full">Create transaction</Button>
+        <Button className="w-full" disabled={busy}>{busy ? "Creating…" : "Create transaction"}</Button>
       </form>
     </div>
   );

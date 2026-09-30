@@ -53,6 +53,10 @@ export async function getTransaction(id: string) {
       include: {
         approvals: { include: { user: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: "desc" } },
         budget: true, budgetItem: true, category: true, department: true, project: true,
+        attachments: {
+          select: { id: true, filename: true, contentType: true, sizeBytes: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     if (!t) throw new AppError("NOT_FOUND", "Transaction not found.");

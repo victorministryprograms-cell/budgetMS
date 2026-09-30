@@ -46,6 +46,7 @@ model Organization {
   auditLogs    AuditLog[]
   notifications Notification[]
   settings     SystemSetting[]
+  attachments  Attachment[]
 
   @@index([status])
   @@index([code])
@@ -116,6 +117,7 @@ model User {
   ownedProjects       Project[]             @relation("ProjectOwner")
   notifications       Notification[]
   auditLogs           AuditLog[]
+  attachments         Attachment[]
 
   @@index([organizationId])
   @@index([roleId])
@@ -326,6 +328,7 @@ model Transaction {
   approvedBy   User?        @relation("TransactionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
 
   approvals TransactionApproval[]
+  attachments Attachment[]
 
   @@index([organizationId])
   @@index([budgetId])
@@ -347,6 +350,32 @@ model TransactionApproval {
   transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [id])
 
+  @@index([transactionId])
+}
+
+// ---------- Attachments ----------
+// File bytes live in the database as a BLOB. Turso has no separate object
+// storage, so uploads go through the Vercel function request, which caps the
+// body at 4.5MB. Base64 inflates payloads by ~33%, so MAX_ATTACHMENT_BYTES is
+// held at 2MB (≈2.7MB encoded) to stay clear of that ceiling. Serve downloads
+// through an authenticated route; never expose the BLOB directly.
+
+model Attachment {
+  id             String   @id @default(cuid())
+  organizationId String
+  transactionId  String?
+  filename       String
+  contentType    String
+  sizeBytes      Int
+  content        Bytes
+  uploadedById   String
+  createdAt      DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transaction  Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+
+  @@index([organizationId])
   @@index([transactionId])
 }
 
