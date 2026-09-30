@@ -2,17 +2,29 @@ import bcrypt from "bcryptjs";
 
 import { createPrismaClient } from "../src/lib/db-client";
 import { SUPERADMIN_PERMISSIONS, ADMIN_PERMISSIONS } from "../src/lib/permissions";
+import { withRetries } from "../scripts/retry";
 
 // The libSQL driver adapter reads configuration straight from process.env, so
 // the env file must be loaded before the client is constructed. Next.js does
 // this for the app; this script runs under tsx and must do it itself.
+//
+// Default target is the local database configured in .env. Set
+// SEED_TARGET=turso (npm run db:seed:remote) to seed the remote database
+// using the credentials in .env.turso instead.
+const envFile = process.env.SEED_TARGET === "turso" ? ".env.turso" : ".env";
 try {
-  process.loadEnvFile();
+  process.loadEnvFile(envFile);
 } catch {
-  // no .env file present — rely on the ambient environment
+  // no env file present — rely on the ambient environment
 }
 
-const prisma = createPrismaClient();
+// Seeding a remote database means one HTTPS round-trip per query, and a
+// congested link will time out requests that would otherwise succeed. Every
+// write below is an upsert, so replaying one is harmless.
+const prisma = withRetries(createPrismaClient(), {
+  onRetry: (error, attempt, delayMs) =>
+    console.warn(`  transient failure (attempt ${attempt}), retrying in ${delayMs}ms: ${(error as Error).message}`),
+});
 
 const isProd = process.env.NODE_ENV === "production";
 
